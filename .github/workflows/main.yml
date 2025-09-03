@@ -1,0 +1,73 @@
+name: Cloud Foundry Auto Start
+
+on:
+  schedule:
+    - cron: '0,30 0 * * *'  #
+  workflow_dispatch:       # 允许手动触发
+
+jobs:
+  start-cf-apps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: 1. 检出代码
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: 2. 设置Python环境
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: ''  # 禁用自动缓存，避免旧依赖干扰
+
+    - name: 3. 创建并激活虚拟环境
+      run: |
+        python -m venv .venv
+        source .venv/bin/activate
+        echo "当前Python路径：$(which python)"
+        echo "虚拟环境激活成功"
+
+    - name: 4. 安装依赖并验证
+      run: |
+        source .venv/bin/activate
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # 仅验证核心依赖（不验证 telegram.utils）
+        echo "=== 已安装的依赖 ==="
+        pip list | grep -E "telegram|requests"
+        # 验证 telegram 模块是否能正常导入
+        echo "=== 验证telegram模块 ==="
+        python -c "import telegram; print('telegram版本：', telegram.__version__)"
+        python -c "from telegram import Bot; print('Bot类导入成功')"
+        python -c "from telegram.constants import ParseMode; print('ParseMode导入成功')"
+
+    - name: 5. 运行CF自动启动脚本
+      # 关键：添加 env 配置，将 GitHub Secrets 注入为环境变量
+      env:
+        # --------------------------
+        # CF 账号1配置（必须和脚本中的变量名一致）
+        # --------------------------
+        CF_USERNAME_1: ${{ secrets.CF_USERNAME_1 }}  # 读取 GitHub Secret: CF_USERNAME_1
+        CF_PASSWORD_1: ${{ secrets.CF_PASSWORD_1 }}  # 读取 GitHub Secret: CF_PASSWORD_1
+        CF_ORG_1: ${{ secrets.CF_ORG_1 }}            # 读取 GitHub Secret: CF_ORG_1
+        CF_SPACE_1: ${{ secrets.CF_SPACE_1 || 'dev' }}# 可选，默认dev
+        CF_APPS_1: ${{ secrets.CF_APPS_1 }}          # 读取 GitHub Secret: CF_APPS_1
+        # --------------------------
+        # CF 账号2配置（如果没有，可删除这部分）
+        # --------------------------
+        CF_USERNAME_2: ${{ secrets.CF_USERNAME_2 }}
+        CF_PASSWORD_2: ${{ secrets.CF_PASSWORD_2 }}
+        CF_ORG_2: ${{ secrets.CF_ORG_2 }}
+        CF_SPACE_2: ${{ secrets.CF_SPACE_2 || 'dev' }}
+        CF_APPS_2: ${{ secrets.CF_APPS_2 }}
+        # --------------------------
+        # Telegram 配置（如果需要通知，保留）
+        # --------------------------
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # 执行脚本
+      run: |
+        source .venv/bin/activate
+        python cf_auto_start.py
